@@ -1,15 +1,25 @@
 # Flask server imports
-from flask import Flask, send_from_directory
+from flask import Flask, jsonify, send_from_directory, render_template
 from flask_cors import CORS
-
-# For IMU/gestures
 import json
+
+# For IMU
+import board
+import busio
+from adafruit_bno08x.i2c import BNO08X_I2C
+import adafruit_bno08x
+from adafruit_bno08x import BNO_REPORT_ROTATION_VECTOR
+from adafruit_bno08x import BNO_REPORT_GAME_ROTATION_VECTOR
 
 # For gestures
 import cv2
 import mediapipe as mp
 from mediapipe.tasks import python
 from mediapipe.tasks.python import vision
+
+i2c = busio.I2C(board.SCL, board.SDA)
+bno = BNO08X_I2C(i2c)
+bno.enable_feature(BNO_REPORT_GAME_ROTATION_VECTOR)
 
 #g.imu_x = 0
 imu_y = 0
@@ -33,17 +43,26 @@ def webglfun(path):
 
 @app.route("/getimu")
 def get_imu():
-    imu_x = app.config['x']
+    # imu_x = app.config['x']
 
-    app.config['x'] = imu_x +  0.1
+    # app.config['x'] = imu_x +  0.1
     # print(imu_x)
-    fake_str = '{},{},{}'.format(imu_x,imu_y,imu_z)
+    # fake_str = '{},{},{}'.format(imu_x,imu_y,imu_z)
     # fake_json = json.dumps(fake_str).encode('utf-8')
     # print(fake_json)
-    return json.dumps(fake_str).encode('utf-8')
+    # return json.dumps(fake_str).encode('utf-8')
+
+    quat_i, quat_j, quat_k, quat_real = bno.game_quaternion
+    # game_quaternion = {
+    #     'x': quat_i,
+    #     'y': quat_j,
+    #     'z': quat_k,
+    #     'w': quat_real
+    # }
+    # print(game_quaternion)
 
 
-    #return json.dumps(bno.game_quaternion).encode('utf-8')
+    return json.dumps(bno.game_quaternion).encode('utf-8')
 
 
 base_options = python.BaseOptions(model_asset_path='gesture_recognizer.task')

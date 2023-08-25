@@ -1,29 +1,76 @@
 import * as THREE from 'three';
 import { EffectComposer } from 'three/addons/postprocessing/EffectComposer.js';
 import { RenderPass } from 'three/addons/postprocessing/RenderPass.js';
+import { FlyControls } from 'three/addons/controls/FlyControls.js';
+import { GLTFLoader } from 'three/addons/loaders/GLTFLoader.js';
 import { ShaderPass } from 'three/addons/postprocessing/ShaderPass.js';
 import { InstagramFilter } from './vignetteShader.js';
 import { LensDistortionShader } from './LensDistortionShader.js'
-import { CopyShader } from 'three/addons/shaders/CopyShader.js';
+
 
 // create a scene 
 const scene = new THREE.Scene();
+const manager = new THREE.LoadingManager();
+const loader = new GLTFLoader( manager );
 
 // stereo camera setup here
 var stereocam = new THREE.StereoCamera();
 stereocam.eyeSep = 1.5;
 
 // scene camera update
-const camera = new THREE.PerspectiveCamera( 75, window.innerWidth /2/ window.innerHeight, 0.1, 1000 );
-camera.position.set(0, 0, 7);
-camera.lookAt(0, 0, 0);
-stereocam.update(camera);
+const camera = new THREE.PerspectiveCamera( 60, window.innerWidth/2 / window.innerHeight, 0.1, 1000 );
+camera.up.set( 0, 0, 1 );
+camera.position.set( 0, -20, 5 );
+camera.lookAt( 0, 0, 5 );
+scene.add( camera );
+stereocam.update( camera );
+
+window.setInterval(() => {
+    fetch("http://127.0.0.1:8000/getimu")
+      .then((response) => {
+            if (response.status != 500) {
+                response.json().then((t) => {
+
+					// // set the camera quaternion.
+                    // camera.rotation.set[t[0],t[1],t[2]];
+                    // camera.quaternion.set(t[0], t[1], t[2], t[3]);
+                    // camera.updateMatrixWorld(true);
+                    
+                })
+            }
+        }
+        )
+      
+    }, 50)
+
+var currGesture = "None";
+window.setInterval(() => {
+    fetch("http://127.0.0.1:8000/getGesture")
+      .then((response) => {
+            if (response.status != 500) {
+                response.json().then((t) => {
+
+                    currGesture = t;
+                    console.log(currGesture);
+                    
+                })
+            }
+        }
+        )
+      
+    }, 50)
+
 
 // create a timestamp
 const clock = new THREE.Clock();
 
 // left and right renderers setup
 var half_canvas_seperation = 5;
+
+// create a container to hold both camera views
+var container = document.createElement( 'div' );
+container.style.cssText = 'position:absolute;width:0%;height:0%;opacity:0;z-index:1;background:#FFFFFF';
+document.body.appendChild( container );
 
 // left
 const rendererLeft = new THREE.WebGLRenderer();
@@ -43,6 +90,13 @@ rendererRight.domElement.style.top = '0px';
 document.body.appendChild(rendererRight.domElement);
 
 
+// enable shadow maps
+rendererLeft.shadowMap.enabled = true;
+rendererLeft.shadowMap.type = THREE.PCFSoftShadowMap;
+rendererRight.shadowMap.enabled = true;
+rendererRight.shadowMap.type = THREE.PCFSoftShadowMap;
+
+
 // EffectComposer setup
 var renderTargetLeft = new THREE.WebGLRenderTarget(window.innerWidth/2,window.innerHeight);
 var renderTargetRight = new THREE.WebGLRenderTarget(window.innerWidth/2,window.innerHeight);
@@ -57,149 +111,203 @@ const composerRight = new EffectComposer( rendererRight, renderTargetRight );
 composerLeft.addPass( renderPassL );
 composerRight.addPass( renderPassR );
 
-// storing camera information
-var c = {
-    lookat: new THREE.Vector3(0, 0, 1),
-    pos: new THREE.Vector3(11, 3, 24),
-    up: new THREE.Vector3(0, 1, 0),
-    quat: new THREE.Quaternion(),
-};
-
-// recording camera behavior
-var s = {
-    pitch: 0,
-    yaw: -1.5600000000000007,
-    perspective: true,
-    movement: false,
-    moveablelights: true,
-};
-
-// dictionary of keys behavior
-var k = {};
-
-// list of keys for keyboard detection
-let validKeys = [
-    'w',
-    'a',
-    's',
-    'd',
-    ' ',
-    'Shift',
-    'ArrowUp',
-    'ArrowDown',
-    'ArrowLeft',
-    'ArrowRight',
-];
-
-// set keydown and keyup listener
-window.addEventListener(
-    'keydown',
-    (e) => {
-        if (validKeys.includes(e.key)) {
-            k[e.key] = true;
-        }
-    },
-    false
-);
-
-window.addEventListener(
-    'keyup',
-    (e) => {
-        if (validKeys.includes(e.key)) {
-            k[e.key] = false;
-        }
-    },
-    false
-);
-
-// window.setInterval(() => {
-//     fetch("http://127.0.0.1:8000/getimu")
-//       .then((response) => {
-//             if (response.status != 500) {
-//                 response.json().then((t) => {
-
-// 					// YOUR CODE:
-
-// 					// set the camera quaternion.
-//                     camera.rotation.set[t[0],t[1],t[2]]
-//                     camera.quaternion.set(t[0], t[1], t[2], t[3])
-//                     camera.updateMatrixWorld(true)
-                    
-//                 })
-//             }
-//         }
-//         )
-      
-//     }, 50)
-
-window.setInterval(() => {
-    fetch("http://127.0.0.1:8000/getGesture")
-      .then((response) => {
-            if (response.status != 500) {
-                response.json().then((t) => {
-
-                    console.log(t);
-                    
-                })
-            }
-        }
-        )
-      
-    }, 500)
 
 // vignette shader pass setup
-var vignettePass = new ShaderPass(InstagramFilter);
+var vignettePass = new ShaderPass( InstagramFilter );
 composerLeft.addPass( vignettePass );
 composerRight.addPass( vignettePass );
 
 // lens distortion shader pass set up
+var distortionPass = new ShaderPass( LensDistortionShader );
+composerLeft.addPass( distortionPass );
+composerRight.addPass( distortionPass );
 
-var lensDistortion = new ShaderPass(LensDistortionShader);
-composerLeft.addPass( lensDistortion );
-composerRight.addPass( lensDistortion );
+// Controller setup
+let controller = new FlyControls( camera, container );
+controller.dragToLook = true;
+controller.movementSpeed = 0.1;
 
-// create a cube 
-const geometry = new THREE.BoxGeometry( 1, 1, 1 );
-const material = new THREE.MeshBasicMaterial( { color: 0x5AD684 } );
-const cube = new THREE.Mesh( geometry, material );
+
+// * IMPORTING THE SCENE
+const shadowBias = -0.001;
+const shadowMapSize = 128;
+
+const pointLight0 = new THREE.PointLight( 0xffffff, 1, 100 );
+pointLight0.position.set( -10, 0, 10 );
+pointLight0.castShadow = true;
+pointLight0.shadow.mapSize.width = shadowMapSize;
+pointLight0.shadow.mapSize.height = shadowMapSize;
+pointLight0.shadow.bias = shadowBias;
+scene.add( pointLight0 );
+
+const pointLight1 = new THREE.PointLight( 0xffffff, 1, 100 );
+pointLight1.position.set( 10, 0, 10 );
+pointLight1.castShadow = true;
+pointLight1.shadow.mapSize.width = shadowMapSize;
+pointLight1.shadow.mapSize.height = shadowMapSize;
+pointLight1.shadow.bias = shadowBias;
+scene.add( pointLight1 );
+
+const areaLight = new THREE.AmbientLight( 0x202020 ); // soft white areaLight
+scene.add( areaLight );
+
+const sphereSize = 0.1;
+const pointLightHelper0 = new THREE.PointLightHelper( pointLight0, sphereSize );
+scene.add( pointLightHelper0 );
+const pointLightHelper1 = new THREE.PointLightHelper( pointLight1, sphereSize );
+scene.add( pointLightHelper1 );
+
+let teapot
+loader.load( 'utah_teapot_continous_quads.glb', function ( gltf ) {
+
+	teapot = gltf.scene;
+	teapot.position.setX( 5 );
+	teapot.position.setZ( 0 );
+	teapot.rotation.x = Math.PI / 2;
+	teapot.scale.set( 2, 2, 2 );
+	teapot.traverse( function( child ) {
+		if ( child.isMesh ) {
+			child.castShadow = true;
+			child.receiveShadow = true;
+		}
+	});
+	scene.add( teapot );
+
+}, undefined, function ( error ) {
+
+	console.error( error );
+
+} );
+
+let knight;
+loader.load( 'low_poly_chess_knight.glb', function ( gltf ) {
+	
+	knight = gltf.scene;
+	knight.position.setX( -5 );
+	knight.position.setZ( 0 );
+	knight.rotation.x = Math.PI / 2;
+	knight.rotation.y = Math.PI / 2;
+
+	knight.traverse( function( child ) {
+		if ( child.isMesh ) {
+			child.castShadow = true;
+			child.receiveShadow = true;
+		}
+	});
+	scene.add( knight );
+
+}, undefined, function ( error ) {
+
+	console.error( error );
+
+} );
+
+const planeGeometry = new THREE.PlaneGeometry( 100, 100, 1, 1 );
+const planeMaterial = new THREE.MeshStandardMaterial( { color: 0x027148 } );
+const plane = new THREE.Mesh( planeGeometry, planeMaterial );
+plane.rotation.z = Math.PI / 2;
+plane.castShadow = true;
+plane.receiveShadow = true;
+scene.add( plane );
+
+const cubeGeometry = new THREE.BoxGeometry( 1, 1, 1 );
+const cubeMaterial = new THREE.MeshStandardMaterial( { color: 0x00ff00 } );
+const cube = new THREE.Mesh( cubeGeometry, cubeMaterial );
+cube.position.set(0, 0, 2);
+cube.castShadow = true;
+cube.receiveShadow = true;
 scene.add( cube );
 
+var sphereDist = 10;
+var sphereRad = 1;
 
-// Euler Test
-// var cx = camera.rotation.x;
-// var cy = camera.rotation.y;
-// var cz = camera.rotation.z;
-//var cw = camera.rotation.w;
+const sphereGeometry = new THREE.SphereGeometry( sphereRad, 32, 16 ); 
+const sphereMaterial = new THREE.MeshStandardMaterial( { color: 0xffff00 } ); 
+const sphere0 = new THREE.Mesh( sphereGeometry, sphereMaterial ); 
+sphere0.position.set( sphereDist, 0, sphereRad ); // need to raise slightly above plane to prevent shadow bugs :(
+sphere0.castShadow = true;
+sphere0.receiveShadow = true;
+scene.add( sphere0 );
 
-// Quaternion Test
-var cx = camera.quaternion.x;
-var cy = camera.quaternion.y;
-var cz = camera.quaternion.z;
-var cw = camera.quaternion.w;
+const sphere1 = new THREE.Mesh( sphereGeometry, sphereMaterial ); 
+sphere1.position.set( -sphereDist, 0, sphereRad );
+sphere1.castShadow = true;
+sphere1.receiveShadow = true;
+scene.add( sphere1 );
+
+const sphere2 = new THREE.Mesh( sphereGeometry, sphereMaterial ); 
+sphere2.position.set( 0, sphereDist, sphereRad );
+sphere2.castShadow = true;
+sphere2.receiveShadow = true;
+scene.add( sphere2 );
+
+const sphere3 = new THREE.Mesh( sphereGeometry, sphereMaterial ); 
+sphere3.position.set( 0, -sphereDist, sphereRad );
+sphere3.castShadow = true;
+sphere3.receiveShadow = true;
+scene.add( sphere3 );
+
+// Adding in a skybox (following https://codinhood.com/post/create-skybox-with-threejs)
+function createPathStrings(filename) {
+	const basePath = "./skybox/";
+	const baseFilename = basePath + filename;
+	const fileType = ".png";
+	const sides = ["ft", "bk", "up", "dn", "rt", "lf"];
+	const pathStrings = sides.map(side => {
+		return baseFilename + "_" + side + fileType;
+	});
+	return pathStrings;
+}
+
+function createMaterialArray(filename) {
+	const skyboxImagepaths = createPathStrings(filename);
+	const materialArray = skyboxImagepaths.map(image => {
+		let texture = new THREE.TextureLoader().load(image);
+		return new THREE.MeshBasicMaterial({ map: texture, side: THREE.BackSide });
+	});
+	return materialArray;
+}
+
+const materialArray = createMaterialArray( "space" );
+var skyboxGeo = new THREE.BoxGeometry( 1000, 1000, 1000 );
+var skybox = new THREE.Mesh( skyboxGeo, materialArray );
+scene.add( skybox );
+
 
 function animate() {
 
-    //cy = cy + 0.1;
-   //camera.rotation.set(cx,cy,cz);
-
-    camera.quaternion.set(cx,cy,cz,cw);
-	camera.quaternion.normalize();
-
-    doMovement(camera);
-
-
-    camera.updateWorldMatrix(true);
-    // console.log(camera.rotation)
-    // console.log(camera.quaternion)
+    if (currGesture != "None") {
+        switch(currGesture) {
+            case "Thumb_Up":
+                camera.position.y += 0.1;
+                break;
+            case "Thumb_Down":
+                camera.position.y -= 0.1;
+                break;
+            case "Victory":
+                camera.position.z += 0.1;
+                break;
+            case "Open_Palm":
+                camera.position.z -= 0.1;
+                break;
+            case "ILoveYou":
+                camera.position.x += 0.1;
+                break;
+            case "Closed_Fist":
+                camera.position.x -= 0.1;
+                break;
+            default:
+                break;
+        }
+    }
 
 	const delta = clock.getDelta();
 	stereocam.update(camera)
 	requestAnimationFrame( animate );
 
-	// call camera navigation function
-	//doMovement(camera);
+	controller.update( 1 );
+	stereocam.update( camera );
 
-	// update sphere motion
 	cube.rotation.x += delta;
 	cube.rotation.y += delta;
 
@@ -210,71 +318,6 @@ function animate() {
     rendererRight.setRenderTarget(renderTargetRight);
     composerRight.render();
 
-}
-
-// YOUR CODE:
-
-// some useful variable to use
-var scaling = 0.1
-var xoff = 0
-var yoff = 0
-
-function doMovement(camera) {
-
-	// four arrow behaviors, change camera rotation, and thus the lookat point of camera.
-	// space and shift are zoom in and out
-	// wsad can be use to change camera position
-
-	// Arrow Key Control
-	// Note: we want to update the camera yaw and pitch information here
-	// Note: when pitch is over 90 degree, you want to keep it as 90, and smaller than -90 need to be -90. 
-	let r = 0.5
-    
-    if (k['ArrowUp'] == true) yoff -= r
-    if (k['ArrowDown'] == true) yoff += r
-
-    if (k['ArrowLeft'] == true) xoff += r
-    if (k['ArrowRight'] == true) xoff -= r
-
-    xoff *= scaling
-    yoff *= scaling
-
-    s.yaw += xoff
-    s.pitch += yoff
-
-    if (s.pitch > Math.PI / 2 - 0.01) s.pitch = Math.PI / 2 - 0.01
-    if (s.pitch < -(Math.PI / 2) + 0.01) s.pitch = -Math.PI / 2 + 0.01
-
-	// maybe keep here.
-    c.lookat.x = -Math.cos(s.pitch) * Math.cos(s.yaw)
-    c.lookat.z = -Math.cos(s.pitch) * Math.sin(-s.yaw)
-    c.lookat.y = -Math.sin(s.pitch)
-
-    let mScaling = 0.1
-
-    c.lookat.normalize()
-
-	// Space and Shift Control
-	// zoom in and out, change z of camera pos.
-
-	if (k[' '] == true) c.pos.z-=mScaling
-	if (k['Shift'] == true) c.pos.z+=mScaling
-
-	// WSAD Control
-	// change camera position, change x and y of camera pos.
-
-    if (k['w'] == true) c.pos.y-=mScaling
-    if (k['s'] == true) c.pos.y+=mScaling
-
-    if (k['a'] == true) c.pos.x-=mScaling
-    if (k['d'] == true) c.pos.x+=mScaling
-
-	// update camera position and lookat point
-	// Note: the lookat point need to combine c.lookat and c.pos.
-
-    camera.position.copy(c.pos)
-    let templookat = new THREE.Vector3().addVectors(c.lookat, c.pos)
-    camera.lookAt(templookat)
 }
 
 animate();
